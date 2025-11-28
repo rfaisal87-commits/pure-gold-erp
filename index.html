@@ -9,7 +9,7 @@
   <body>
     <div class="header">
       <div class="brand">Pure Gold Jewellers Faisalabad</div>
-      <div class="small">ERP • Mobile-ready</div>
+      <div id="auth-area" class="small"> <!-- auth UI injected here --> </div>
     </div>
 
     <div class="container">
@@ -22,18 +22,22 @@
           <a href="#" data-view="customers">Customers</a>
           <a href="#" data-view="purchases">Purchases</a>
           <a href="#" data-view="reports">Reports</a>
+          <hr/>
+          <a href="#" id="logout-btn">Logout</a>
         </div>
       </div>
 
       <div class="content">
-        <div id="main-view">
-          <!-- Dynamic content injected here by app.js -->
-        </div>
+        <div id="main-view"></div>
         <div class="footer card">
           Built for <strong>Pure Gold Jewellers Faisalabad</strong>. Need help? Reply in chat.
         </div>
       </div>
     </div>
+
+    <!-- libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <script type="module" src="./app.js"></script>
   </body>
