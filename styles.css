@@ -1,4 +1,4 @@
-/* styles.css — Pure Gold Jewellers Faisalabad theme */
+/* styles.css — Pure Gold Jewellers Faisalabad theme (updated) */
 :root{
   --gold:#C6A667;
   --white:#FFFFFF;
@@ -11,16 +11,16 @@
 
 *{box-sizing:border-box;font-family:Inter, Poppins, Arial, sans-serif}
 body{margin:0;background:var(--bg);color:#222}
-.header{background:var(--white);padding:16px 18px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.04)}
+.header{background:var(--white);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.04)}
 .brand{color:var(--gold);font-weight:700;font-size:18px}
-.container{display:flex;min-height:calc(100vh - 64px)}
-.sidebar{width:240px;padding:18px;background:var(--white);box-shadow:2px 0 8px rgba(0,0,0,0.03)}
+.container{display:flex;min-height:calc(100vh - 56px)}
+.sidebar{width:240px;padding:18px;background:var(--white);box-shadow:2px 0 8px rgba(0,0,0,0.03);position:relative;z-index:5}
 .menu a{display:block;padding:10px 8px;color:#222;text-decoration:none;border-radius:8px;margin-bottom:6px}
 .menu a:hover{background:#f0eedd;color:var(--gold)}
 .content{flex:1;padding:18px}
 .card{background:var(--white);padding:16px;border-radius:var(--card-radius);box-shadow:0 6px 18px rgba(0,0,0,0.04);margin-bottom:16px}
-.row{display:flex;gap:12px}
-.col{flex:1}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.col{flex:1;min-width:0}
 .table{width:100%;border-collapse:collapse}
 .table th,.table td{padding:8px;border-bottom:1px solid #eee;text-align:left}
 .input,textarea,select{width:100%;padding:8px;border:1px solid #e8e6e2;border-radius:8px}
@@ -28,4 +28,15 @@ body{margin:0;background:var(--bg);color:#222}
 .small{font-size:13px;color:var(--muted)}
 .cart{background:#fff;padding:12px;border-radius:8px}
 .footer{padding:12px;color:#777;font-size:13px;text-align:center}
-@media (max-width:800px){.sidebar{display:none}.container{flex-direction:column}.header{padding:12px}}
+
+/* MOBILE: show the sidebar as collapsible panel, but default visible */
+@media (max-width:900px){
+  .container{flex-direction:row}
+  .sidebar{position:fixed;left:0;top:56px;height:calc(100vh - 56px);overflow:auto}
+  .content{margin-left:260px;padding:14px}
+  /* add a small top bar toggle */
+  .menu-toggle{display:block}
+}
+
+/* small style for camera area */
+#scanner { width:100%; height:320px; background:#000; border-radius:8px; overflow:hidden; }
