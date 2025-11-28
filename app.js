@@ -1,10 +1,62 @@
-// app.js — Pure Gold Jewellers Faisalabad (vanilla JS frontend)
+// app.js — Advanced ERP with Auth, Image upload, Barcode scanning, PDF invoices, Gold rate calc
 import { supabase } from './supabase-config.js';
+const { jsPDF } = window.jspdf;
 
-/* ---------- helpers ---------- */
-const byId = id => document.getElementById(id);
 const main = document.getElementById('main-view');
+const authArea = document.getElementById('auth-area');
 
+// --------- AUTH (email/password) ----------
+
+async function showAuthUI(){
+  authArea.innerHTML = `
+    <div id="auth-wrap" style="display:flex;gap:8px;align-items:center">
+      <input id="auth-email" placeholder="email" class="input" style="width:160px;padding:6px" />
+      <input id="auth-pass" placeholder="password" type="password" class="input" style="width:120px;padding:6px" />
+      <button id="signin-btn" class="btn">Sign in</button>
+      <button id="signup-btn" class="btn" style="background:#666">Sign up</button>
+    </div>
+  `;
+  document.getElementById('signin-btn').onclick = async () => {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-pass').value;
+    if(!email || !password) return alert('Enter email & password');
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if(error) return alert('Sign in error: ' + error.message);
+    renderAuthState();
+    initDefaultData();
+    routeTo('dashboard');
+  };
+  document.getElementById('signup-btn').onclick = async () => {
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-pass').value;
+    if(!email || !password) return alert('Enter email & password');
+    const { error } = await supabase.auth.signUp({ email, password });
+    if(error) return alert('Sign up error: ' + error.message);
+    alert('Signup OK — check email to confirm (if enabled)');
+  };
+}
+
+async function renderAuthState(){
+  const user = supabase.auth.getSession ? (await supabase.auth.getSession()).data.session?.user : null;
+  // supabase v2: use getSession()
+  if(user) {
+    authArea.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><span class="small">Hi ${user.email||'user'}</span> <button id="signout" class="btn">Sign out</button></div>`;
+    document.getElementById('signout').onclick = async ()=> {
+      await supabase.auth.signOut();
+      showAuthUI();
+    };
+  } else {
+    showAuthUI();
+  }
+}
+
+// listen for auth changes (keeps UI in sync)
+supabase.auth.onAuthStateChange((event, session) => {
+  renderAuthState();
+});
+
+// ---------- helpers ----------
+const byId = id => document.getElementById(id);
 function el(html){ const div = document.createElement('div'); div.innerHTML = html; return div.firstElementChild || div; }
 
 async function fetchCounts(){
@@ -22,13 +74,11 @@ async function fetchCounts(){
   }
 }
 
-/* ---------- views ---------- */
-
+// ---------- Dashboard ----------
 async function showDashboard(){
   main.innerHTML = '';
   const card = el(`<div class="card"><h3>Dashboard</h3><div id="dash-stats" class="row"></div></div>`);
   main.appendChild(card);
-
   const counts = await fetchCounts();
   const statsHtml = `
     <div class="col card"><h4>Products</h4><div style="font-size:26px">${counts.products}</div></div>
@@ -37,21 +87,42 @@ async function showDashboard(){
     <div class="col card"><h4>Sales</h4><div style="font-size:26px">${counts.sales}</div></div>
   `;
   byId('dash-stats').innerHTML = statsHtml;
+
+  // Gold rate calculator
+  main.appendChild(el(`<div class="card"><h4>Gold rate & profit calculator</h4>
+    <div class="row">
+      <div class="col"><label>Rate per gram (Rs)<input id="gold-rate" class="input" type="number" /></label></div>
+      <div class="col"><label>Weight (g)<input id="gold-weight" class="input" type="number" /></label></div>
+      <div class="col"><label>Cost price (Rs)<input id="gold-cost" class="input" type="number" /></label></div>
+    </div>
+    <div style="margin-top:8px"><button id="calc-profit" class="btn">Calculate</button></div>
+    <div id="gold-result" class="small" style="margin-top:8px"></div>
+  </div>`));
+  document.getElementById('calc-profit').onclick = () => {
+    const r = parseFloat(byId('gold-rate').value) || 0;
+    const w = parseFloat(byId('gold-weight').value) || 0;
+    const cost = parseFloat(byId('gold-cost').value) || 0;
+    const market = r * w;
+    const profit = market - cost;
+    byId('gold-result').innerText = `Market value: Rs ${market.toFixed(2)} — Profit: Rs ${profit.toFixed(2)}`;
+  };
 }
 
+// ---------- PRODUCTS (list + image upload) ----------
 async function showProducts(){
   main.innerHTML = '';
-  const wrap = el(`<div class="card"><h3>Products</h3>
-    <div id="prod-list">Loading...</div></div>`);
+  const wrap = el(`<div class="card"><h3>Products</h3><div id="prod-list">Loading...</div></div>`);
   main.appendChild(wrap);
 
   const { data, error } = await supabase.from('products').select('*').order('id', { ascending: false });
   if(error){ byId('prod-list').innerText = 'Error loading products'; return; }
   if(!data.length){ byId('prod-list').innerHTML = '<div class="small">No products yet.</div>'; return; }
 
-  let html = `<table class="table"><thead><tr><th>SKU</th><th>Name</th><th>Metal</th><th>Wt(g)</th><th>Price</th></tr></thead><tbody>`;
+  let html = `<table class="table"><thead><tr><th>Image</th><th>SKU</th><th>Name</th><th>Metal</th><th>Wt(g)</th><th>Price</th></tr></thead><tbody>`;
   for(const p of data){
+    const img = p.image_url ? `<img src="${p.image_url}" style="width:64px;height:48px;object-fit:cover;border-radius:6px" />` : '';
     html += `<tr>
+      <td>${img}</td>
       <td>${p.sku||''}</td>
       <td>${p.name}</td>
       <td>${p.metal_type||''} ${p.metal_purity||''}</td>
@@ -65,7 +136,7 @@ async function showProducts(){
 
 function showAddProduct(){
   main.innerHTML = '';
-  main.appendChild(el(`<div class="card"><h3>Add Product</h3>
+  main.appendChild(el(`<div class="card"><h3>Add Product (with image)</h3>
     <div class="row">
       <div class="col"><label>SKU<input id="p-sku" class="input" /></label></div>
       <div class="col"><label>Name<input id="p-name" class="input" /></label></div>
@@ -78,6 +149,9 @@ function showAddProduct(){
       <div class="col"><label>Weight (g)<input id="p-weight" class="input" type="number" /></label></div>
       <div class="col"><label>Retail Price<input id="p-price" class="input" type="number" /></label></div>
     </div>
+    <div style="margin-top:8px">
+      <label>Image <input id="p-image" type="file" accept="image/*" /></label>
+    </div>
     <div style="margin-top:12px"><button id="save-product" class="btn">Save Product</button></div>
   </div>`));
 
@@ -88,19 +162,34 @@ function showAddProduct(){
     const purity = document.getElementById('p-purity').value.trim();
     const weight = parseFloat(document.getElementById('p-weight').value) || 0;
     const price = parseFloat(document.getElementById('p-price').value) || 0;
-
     if(!name){ alert('Enter product name'); return; }
+
+    // upload image if provided
+    const fileInput = document.getElementById('p-image');
+    let publicUrl = null;
+    if(fileInput.files && fileInput.files[0]){
+      const file = fileInput.files[0];
+      // create unique filename
+      const filename = `${Date.now()}_${file.name}`;
+      const { data, error: upErr } = await supabase.storage.from('product-images').upload(filename, file, { cacheControl: '3600', upsert: false });
+      if(upErr){ console.error(upErr); alert('Image upload failed: ' + upErr.message); return; }
+      // get public URL
+      const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(filename);
+      publicUrl = urlData.publicUrl;
+    }
+
     const { data, error } = await supabase.from('products').insert([{
-      sku, name, metal_type: metal, metal_purity: purity, weight_grams: weight, retail_price: price
+      sku, name, metal_type: metal, metal_purity: purity, weight_grams: weight, retail_price: price, image_url: publicUrl
     }]).select().single();
     if(error){ alert('Error: '+error.message); return; }
-    // create stock row with qty 0 at default branch (null)
+    // create stock row with qty 0 at default branch (1)
     await supabase.from('stock').upsert([{ product_id: data.id, branch_id: 1, qty: 0 }], { onConflict: ['product_id','branch_id'] });
     alert('Product saved');
     showProducts();
   });
 }
 
+// ---------- CUSTOMERS ----------
 async function showCustomers(){
   main.innerHTML = '';
   main.appendChild(el(`<div class="card"><h3>Customers</h3><div id="cust-list">Loading...</div>
@@ -130,6 +219,7 @@ async function showCustomers(){
   loadCustomers();
 }
 
+// ---------- PURCHASES ----------
 async function showPurchases(){
   main.innerHTML = '';
   main.appendChild(el(`<div class="card"><h3>Purchases (Receive stock)</h3>
@@ -138,7 +228,6 @@ async function showPurchases(){
     </div></div>`));
 
   const products = (await supabase.from('products').select('*')).data || [];
-  const suppliers = (await supabase.from('suppliers').select('*')).data || [];
   const branches = (await supabase.from('branches').select('*')).data || [{id:1,name:'Main'}];
 
   const form = el(`<div class="card">
@@ -178,12 +267,18 @@ async function showPurchases(){
   });
 }
 
+// ---------- POS with Barcode scanning + Invoice PDF ----------
 async function showPOS(){
   main.innerHTML = '';
   const wrap = el(`<div class="card"><h3>POS — Quick Sale</h3>
     <div class="row">
       <div class="col">
-        <input id="pos-search" class="input" placeholder="Search product by SKU or name" />
+        <input id="pos-search" class="input" placeholder="Search product by SKU or name or scan barcode" />
+        <div style="margin-top:8px">
+          <button id="start-scan" class="btn">Start Camera Scanner</button>
+          <button id="stop-scan" class="btn" style="background:#777;margin-left:8px">Stop Scanner</button>
+        </div>
+        <div id="scanner" style="margin-top:8px"></div>
         <div id="pos-results" style="margin-top:8px"></div>
       </div>
       <div style="width:320px">
@@ -191,7 +286,8 @@ async function showPOS(){
         <div style="margin-top:8px"><strong>Total: Rs <span id="cart-total">0</span></strong></div>
         <div style="margin-top:8px">
           <input id="customer-name" class="input" placeholder="Customer name (optional)" />
-          <button id="complete-sale" class="btn" style="margin-top:8px">Complete Sale</button>
+          <div style="margin-top:8px"><button id="complete-sale" class="btn">Complete Sale</button>
+          <button id="print-invoice" class="btn" style="background:#666;margin-left:6px">Download Invoice</button></div>
         </div>
         </div>
       </div>
@@ -221,7 +317,7 @@ async function showPOS(){
         const prod = products.find(x=>x.id===id);
         const cartItem = cart.find(ci=>ci.id===id);
         if(cartItem) cartItem.qty++;
-        else cart.push({ id: prod.id, name: prod.name, unit: prod.retail_price||0, qty:1 });
+        else cart.push({ id: prod.id, name: prod.name, unit: prod.retail_price||0, qty:1, sku: prod.sku||'' });
         renderCart();
       });
     });
@@ -275,19 +371,79 @@ async function showPOS(){
         const newQty = Math.max(0, (stockRow.qty||0) - item.qty);
         await supabase.from('stock').update({ qty: newQty, updated_at: new Date() }).match({ id: stockRow.id });
       } else {
-        // if no stock row exists, insert with 0 (sold without stock tracking)
         await supabase.from('stock').insert([{ product_id: item.id, branch_id: 1, qty: 0 }]);
       }
     }
     alert('Sale completed. Total: Rs ' + total.toFixed(2));
+    // store last invoice details in local for PDF
+    window._lastInvoice = { id: sale.id, items: cart, total, customer: customerName || 'Walk-in' };
     cart = []; renderCart();
   });
 
-  // load latest products into memory
+  document.getElementById('print-invoice').addEventListener('click', () => {
+    // generate PDF from last invoice
+    const inv = window._lastInvoice;
+    if(!inv) return alert('No recent sale available to print. Complete a sale first.');
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text('Pure Gold Jewellers Faisalabad', 14, 18);
+    doc.setFontSize(10);
+    doc.text(`Invoice ID: ${inv.id}`, 14, 28);
+    doc.text(`Customer: ${inv.customer}`, 14, 34);
+    let y = 44;
+    doc.setFontSize(10);
+    doc.text('Items:', 14, y); y += 6;
+    inv.items.forEach(it => {
+      doc.text(`${it.name} (${it.sku}) x${it.qty} - Rs ${ (it.qty*it.unit).toFixed(2) }`, 14, y);
+      y += 6;
+    });
+    doc.text(`Total: Rs ${inv.total.toFixed(2)}`, 14, y+6);
+    doc.save(`invoice_${inv.id || Date.now()}.pdf`);
+  });
+
+  // ---------- Barcode scanning (Quagga) ----------
+  function startScanner(){
+    const scannerEl = document.getElementById('scanner');
+    scannerEl.innerHTML = '';
+    try{
+      Quagga.init({
+        inputStream: { name: "Live", type: "LiveStream", target: scannerEl, constraints: { facingMode: "environment"} },
+        decoder: { readers: ["ean_reader","ean_8_reader","code_128_reader","code_39_reader","upc_reader"] }
+      }, function(err) {
+        if (err) { console.log(err); alert('Scanner init error: '+err); return; }
+        Quagga.start();
+        Quagga.onDetected(function(data){
+          const code = data.codeResult.code;
+          // if scanned, search product by SKU
+          document.getElementById('pos-search').value = code;
+          const matches = products.filter(p => (p.sku||'').toLowerCase() === (code||'').toLowerCase() || (p.name||'').toLowerCase().includes(code.toLowerCase()));
+          if(matches.length){
+            // auto add first match
+            const p = matches[0];
+            const cartItem = cart.find(ci=>ci.id===p.id);
+            if(cartItem) cartItem.qty++;
+            else cart.push({ id: p.id, name: p.name, unit: p.retail_price||0, qty:1, sku: p.sku||'' });
+            renderCart();
+            // stop scanner briefly
+            Quagga.stop();
+          }
+        });
+      });
+    }catch(e){
+      console.error(e); alert('Scanner not supported on this device/browser.');
+    }
+  }
+  function stopScanner(){ try{ Quagga.stop(); }catch(e){} document.getElementById('scanner').innerHTML = ''; }
+
+  document.getElementById('start-scan').onclick = startScanner;
+  document.getElementById('stop-scan').onclick = stopScanner;
+
+  // load products
   products = (await supabase.from('products').select('*')).data || [];
   renderCart();
 }
 
+// ---------- Reports ----------
 async function showReports(){
   main.innerHTML = '';
   const sales = (await supabase.from('sales').select('*').order('created_at', { ascending: false }).limit(20)).data || [];
@@ -315,18 +471,25 @@ async function showReports(){
 
 async function initDefaultData(){
   // ensure one branch exists (main)
-  const { data: branch } = await supabase.from('branches').select('*').eq('name','Main').limit(1);
-  if(!branch || branch.length===0) await supabase.from('branches').insert([{ name: 'Main', address: 'Faisalabad' }]);
+  const { data: branches } = await supabase.from('branches').select('*').limit(1);
+  if(!branches || branches.length===0) await supabase.from('branches').insert([{ name: 'Main', address: 'Faisalabad' }]);
 }
 
 function attachMenuHandlers(){
-  document.querySelectorAll('.menu a').forEach(a=>{
+  document.querySelectorAll('.menu a[data-view]').forEach(a=>{
     a.addEventListener('click', (ev)=>{
       ev.preventDefault();
       const v = a.dataset.view;
       routeTo(v);
-      // on small screens collapse sidebar (not implemented: it's just hidden on mobile css)
     });
+  });
+  // logout
+  const logoutBtn = document.getElementById('logout-btn');
+  if(logoutBtn) logoutBtn.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    await supabase.auth.signOut();
+    showAuthUI();
+    routeTo('dashboard');
   });
 }
 
@@ -342,13 +505,13 @@ function routeTo(v){
 }
 
 (async function start(){
-  main.innerHTML = `<div class="card"><h3>Loading ERP...</h3><div class="small">Connecting to database...</div></div>`;
-  attachMenuHandlers();
   try{
+    await renderAuthState();
+    attachMenuHandlers();
     await initDefaultData();
     routeTo('dashboard');
   }catch(e){
-    main.innerHTML = `<div class="card"><h3>Error</h3><div class="small">Could not connect to Supabase. Check keys.</div></div>`;
+    main.innerHTML = `<div class="card"><h3>Error</h3><div class="small">Could not initialize app. ${e.message||''}</div></div>`;
     console.error(e);
   }
 })();
